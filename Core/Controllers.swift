@@ -32,6 +32,11 @@ let knownPads: [Int: [Int: KnownPad]] = [
         0x0CE6: KnownPad(name: "Sony DualSense", mode: "PS5 mode"),
         0x0DF2: KnownPad(name: "Sony DualSense Edge", mode: "PS5 mode"),
     ],
+    // GameSir's own IDs; the Nova 2 Lite's PC-mode IDs come from GameSir Connect's model table.
+    0x3537: [
+        0x100F: KnownPad(name: "GameSir Nova 2 Lite", mode: "XInput (PC) mode"),
+        0x1098: KnownPad(name: "GameSir Nova 2 Lite (wireless)", mode: "XInput (PC) mode"),
+    ],
 ]
 
 let vendorNames: [Int: String] = [
@@ -389,6 +394,12 @@ struct PadSnapshot {
 protocol PadSource: AnyObject {
     func snapshot() -> PadSnapshot
     func reset()
+    /// Undo anything the source switched on in the controller. Called before it's dropped.
+    func close()
+}
+
+extension PadSource {
+    func close() {}
 }
 
 // MARK: - Switch Pro report decoding
@@ -510,7 +521,192 @@ func gameController(for candidate: Candidate?, among candidates: [Candidate]) ->
 /// Prefers decoding Switch reports directly; otherwise uses macOS GameController.
 func makePadSource(for candidate: Candidate?, hid: HIDMonitor?, gc: GCMonitor?) -> PadSource? {
     if let candidate, SwitchProMonitor.matches(candidate), let hid { return SwitchProMonitor(hid) }
+    if let candidate, Nova2LiteMonitor.matches(candidate), let nova = Nova2LiteMonitor() { return nova }
     return gc
+}
+
+// MARK: - GameSir Nova 2 Lite in PC mode
+
+/// Talks to the Nova 2 Lite's configuration interface (vendor page FF7A) in PC mode, where
+/// macOS has no driver for its XInput gamepad interface. Every packet here was taken from
+/// GameSir Connect 1.14.5 and checked against the controller.
+/// Never sends anything else: in particular not F2 00 04 F6, which starts a firmware update.
+final class Nova2LiteMonitor: PadSource {
+    struct Button { let name: String, label: String, symbol: String?, role: PadRole, byte: Int, mask: UInt8 }
+
+    // Offsets relative to the first button byte, from GameSir Connect's state decoder.
+    static let buttons: [Button] = [
+        Button(name: "A Button", label: "A", symbol: nil, role: .south, byte: 0, mask: 0x01),
+        Button(name: "B Button", label: "B", symbol: nil, role: .east, byte: 0, mask: 0x02),
+        Button(name: "X Button", label: "X", symbol: nil, role: .west, byte: 0, mask: 0x08),
+        Button(name: "Y Button", label: "Y", symbol: nil, role: .north, byte: 0, mask: 0x10),
+        Button(name: "LB Button", label: "LB", symbol: nil, role: .leftShoulder, byte: 0, mask: 0x40),
+        Button(name: "RB Button", label: "RB", symbol: nil, role: .rightShoulder, byte: 0, mask: 0x80),
+        Button(name: "View Button", label: "", symbol: nil, role: .options, byte: 1, mask: 0x04),
+        Button(name: "Menu Button", label: "", symbol: nil, role: .menu, byte: 1, mask: 0x08),
+        Button(name: "Home Button", label: "", symbol: "house", role: .home, byte: 1, mask: 0x10),
+        Button(name: "Left Stick Button", label: "", symbol: nil, role: .leftStickClick, byte: 1, mask: 0x20),
+        Button(name: "Right Stick Button", label: "", symbol: nil, role: .rightStickClick, byte: 1, mask: 0x40),
+        Button(name: "Capture Button", label: "", symbol: "camera", role: .share, byte: 1, mask: 0x80),
+    ]
+    static let dpadUp: UInt8 = 0x01, dpadDown: UInt8 = 0x02, dpadLeft: UInt8 = 0x04, dpadRight: UInt8 = 0x08
+
+    static func matches(_ c: Candidate) -> Bool { c.vid == 0x3537 && (c.pid == 0x100F || c.pid == 0x1098) }
+
+    private let manager: IOHIDManager
+    private let device: IOHIDDevice
+    private let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
+    private var report: [UInt8] = []
+    private var seen = Set<String>()
+    private var closed = false
+
+    /// Firmware as GameSir writes it, e.g. "6101": version 61, then edition 01.
+    private(set) var firmwareCode: String?
+
+    var firmwareDescription: String? {
+        guard let code = firmwareCode, code.count == 4 else { return firmwareCode }
+        let edition = code.hasSuffix("01") ? "international" : code.hasSuffix("00") ? "internal" : "edition \(code.suffix(2))"
+        return "V\(code.prefix(2)) \(edition) (\(code))"
+    }
+
+    init?() {
+        manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: 0x3537, kIOHIDPrimaryUsagePageKey: 0xFF7A] as CFDictionary)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        guard let device = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>)?.first(where: {
+            [0x100F, 0x1098].contains(hidProp($0, kIOHIDProductIDKey) as? Int ?? 0)
+        }) else { return nil }
+        self.device = device
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { ctx, _, _, _, _, report, length in
+            Unmanaged<Nova2LiteMonitor>.fromOpaque(ctx!).takeUnretainedValue()
+                .receive(Array(UnsafeBufferPointer(start: report, count: length)))
+        }, ctx)
+        send([0x01, 0x01])                                  // GetVersion of the controller (device 1)
+        send(Self.withChecksum([0xF3, 0x01, 0x05, 0x01]))   // state reports on, "Original" (physical) layout
+    }
+
+    deinit { close() }
+
+    /// Turns state reports off again, as GameSir Connect does when it lets go of a controller.
+    func close() {
+        guard !closed else { return }
+        closed = true
+        send(Self.withChecksum([0xF3, 0x01, 0x05, 0x00]))
+        IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, nil, nil)
+        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+    }
+
+    func reset() { seen.removeAll() }
+
+    /// Runs both motors briefly with GameSir Connect's own vibrate and stop packets.
+    func vibrate(strength: UInt8 = 0x60, duration: TimeInterval = 0.5) {
+        send([0x04, strength, 0x08, strength, 0x08, 0x00, 0x08, 0x00, 0x08])
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            self?.send([0x04, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08])
+        }
+    }
+
+    /// Settings packets end with the low byte of the sum of everything before it.
+    private static func withChecksum(_ bytes: [UInt8]) -> [UInt8] {
+        bytes + [bytes.reduce(0, &+)]
+    }
+
+    private func send(_ payload: [UInt8]) {
+        guard !closed || payload.first == 0xF3 else { return }
+        var out = payload + [UInt8](repeating: 0, count: 64 - payload.count)
+        IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0, &out, out.count)
+    }
+
+    private func receive(_ bytes: [UInt8]) {
+        switch bytes.first {
+        case 0x01 where bytes.count > 11:  // GetVersion reply: firmware in bytes 10–11
+            firmwareCode = String(format: "%02X%02X", bytes[10], bytes[11])
+        case 0xF4 where bytes.count > 21 && bytes[1] == 0x00:
+            report = bytes
+            if firmwareCode == nil { firmwareCode = String(format: "%02X%02X", bytes[20], bytes[21]) }
+            record(bytes)
+        default:
+            break  // acknowledgements (F3 echo) and anything unknown
+        }
+    }
+
+    /// Byte positions depend on the report format in byte 2 (GameSir Connect's decoder):
+    /// below 32 the buttons start at 4 and sticks at 8; from 32 the sticks move to 22, and
+    /// from 38 the triggers move to 30 and buttons to 32.
+    private struct Layout { let keys: Int, sticks: Int, leftTrigger: Int, rightTrigger: Int }
+
+    private func layout(_ b: [UInt8]) -> Layout {
+        let format = b.count > 2 ? Int(b[2]) : 0
+        if format >= 38 && b.count >= 38 { return Layout(keys: 32, sticks: 22, leftTrigger: 30, rightTrigger: 31) }
+        if format >= 32 { return Layout(keys: 4, sticks: 22, leftTrigger: 16, rightTrigger: 17) }
+        return Layout(keys: 4, sticks: 8, leftTrigger: 16, rightTrigger: 17)
+    }
+
+    private func axis(_ b: [UInt8], _ offset: Int) -> Float {
+        guard b.count > offset + 1 else { return 0 }
+        let raw = Int16(bitPattern: UInt16(b[offset]) | UInt16(b[offset + 1]) << 8)
+        return raw >= 0 ? Float(raw) / 32767 : Float(raw) / 32768
+    }
+
+    private func record(_ b: [UInt8]) {
+        let s = state(b)
+        for btn in s.buttons where btn.pressed { seen.insert(btn.name) }
+        for stick in s.sticks {
+            for (dir, d) in stick.directions where d.pressed { seen.insert(PadSnapshot.inputName(stick, dir)) }
+        }
+    }
+
+    private func state(_ b: [UInt8]) -> (buttons: [PadButtonState], sticks: [PadStickState]) {
+        guard b.count >= 22 else { return ([], []) }
+        let l = layout(b)
+        var buttons = Self.buttons.map { btn -> PadButtonState in
+            let pressed = b[l.keys + btn.byte] & btn.mask != 0
+            return PadButtonState(id: btn.name, name: btn.name, label: btn.label, symbol: btn.symbol, role: btn.role,
+                                  pressed: pressed, value: pressed ? 1 : 0, isAnalog: false, verified: seen.contains(btn.name))
+        }
+        for (name, label, role, offset) in [("LT Button", "LT", PadRole.leftTrigger, l.leftTrigger),
+                                            ("RT Button", "RT", PadRole.rightTrigger, l.rightTrigger)] {
+            let value = Float(b[offset]) / 255
+            buttons.append(PadButtonState(id: name, name: name, label: label, symbol: nil, role: role,
+                                          pressed: value > 0.1, value: value, isAnalog: true, verified: seen.contains(name)))
+        }
+
+        func dir(_ stick: String, _ d: String, _ pressed: Bool) -> DirectionState {
+            DirectionState(pressed: pressed, verified: pressed || seen.contains("\(stick) \(d)"))
+        }
+        func analog(_ name: String, _ role: StickRole, _ offset: Int) -> PadStickState {
+            let x = axis(b, offset), y = axis(b, offset + 2)  // positive y is up
+            return PadStickState(id: name, name: name, role: role, x: x, y: y,
+                                 up: dir(name, "Up", y > 0.5), down: dir(name, "Down", y < -0.5),
+                                 left: dir(name, "Left", x < -0.5), right: dir(name, "Right", x > 0.5))
+        }
+        let d = b[l.keys + 2], dpad = "Directional Buttons"
+        let up = d & Self.dpadUp != 0, down = d & Self.dpadDown != 0
+        let left = d & Self.dpadLeft != 0, right = d & Self.dpadRight != 0
+        let sticks = [
+            PadStickState(id: dpad, name: dpad, role: .dpad,
+                          x: right ? 1 : left ? -1 : 0, y: up ? 1 : down ? -1 : 0,
+                          up: dir(dpad, "Up", up), down: dir(dpad, "Down", down),
+                          left: dir(dpad, "Left", left), right: dir(dpad, "Right", right)),
+            analog("Left Stick", .leftStick, l.sticks),
+            analog("Right Stick", .rightStick, l.sticks + 4),
+        ]
+        return (buttons, sticks)
+    }
+
+    /// An all-released report, so the checklist lists every input before the first report arrives.
+    private static let idleReport: [UInt8] = [0xF4, 0x00, 0x17] + [UInt8](repeating: 0, count: 61)
+
+    func snapshot() -> PadSnapshot {
+        let s = state(report.isEmpty ? Self.idleReport : report)
+        return PadSnapshot(title: "GameSir Nova 2 Lite", source: "GameSir's configuration interface",
+                           playStationLayout: false,
+                           buttons: s.buttons.sorted { $0.name < $1.name },
+                           sticks: s.sticks.sorted { $0.name < $1.name },
+                           battery: nil)
+    }
 }
 
 // MARK: - Raw HID input tracking (works for any HID controller, even ones GameController ignores)

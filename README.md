@@ -42,6 +42,18 @@ Controllers in XInput mode over USB can be identified, but macOS has no driver f
 so their buttons can't be read. Switch the controller to Switch or DInput/Android mode to
 test them.
 
+The exception is the **GameSir Nova 2 Lite** in PC mode (`3537:100F`). PadCheck talks to
+its configuration interface (vendor HID page `FF7A`), the same channel GameSir's own
+software uses, to:
+
+- show it as a Nova 2 Lite and read its firmware version (e.g. `V61 international`);
+- run a **Test Vibration**;
+- test every button, trigger, stick and D-pad direction from the controller's own state
+  reports.
+
+PadCheck only sends packets GameSir's software sends, and turns the state reports off
+again when it lets go of the controller.
+
 ## Build
 
 Requires macOS 14+ and the Xcode command-line tools.
@@ -68,7 +80,7 @@ prints any inputs that never registered.
 
 | Path | Contents |
 |---|---|
-| `Core/Controllers.swift` | Identification, GameSir mode detection, input tracking, Switch report decoder |
+| `Core/Controllers.swift` | Identification, GameSir mode detection, input tracking, Switch report decoder, Nova 2 Lite support |
 | `App/` | SwiftUI app |
 | `CLI/main.swift` | Terminal tool |
 | `build.sh` | Builds both |

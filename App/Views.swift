@@ -19,7 +19,8 @@ struct ContentView: View {
             }
             ControllerBar()
             if let candidate = model.candidate {
-                IdentityCard(candidate: candidate, gameController: model.gc?.controller)
+                IdentityCard(candidate: candidate, gameController: model.gc?.controller,
+                             gameSirFirmware: model.nova?.firmwareDescription, readsInputs: model.source != nil)
                 Picker("View", selection: $tab) {
                     ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
@@ -29,7 +30,8 @@ struct ContentView: View {
                 switch tab {
                 case .buttons:
                     if let snapshot = model.snapshot {
-                        ButtonTestView(snapshot: snapshot, onToggleSkip: model.toggleSkip)
+                        ButtonTestView(snapshot: snapshot, onToggleSkip: model.toggleSkip,
+                                       onVibrate: model.nova.map { nova in { nova.vibrate() } })
                     } else {
                         ContentUnavailableView("macOS isn't exposing this controller to games",
                                                systemImage: "gamecontroller",
@@ -110,6 +112,10 @@ struct ControllerBar: View {
 struct IdentityCard: View {
     let candidate: Candidate
     let gameController: GCController?
+    /// Firmware read over GameSir's configuration interface, when available.
+    let gameSirFirmware: String?
+    /// Whether PadCheck can read this controller's inputs some other way than a macOS driver.
+    let readsInputs: Bool
 
     var body: some View {
         let gameSir = gameSirVerdict(candidate, gcVendors: [gameController?.vendorName].compactMap { $0 })
@@ -149,13 +155,13 @@ struct IdentityCard: View {
                 Detail("Manufacturer", candidate.manufacturer.map { "\"\($0)\"" } ?? "None reported")
                 Detail("Product", candidate.product.map { "\"\($0)\"" } ?? "None reported")
                 Detail("Connection", candidate.transport)
-                Detail("Firmware", candidate.firmware ?? "—")
+                Detail("Firmware", gameSirFirmware ?? candidate.firmware ?? "—")
                 Detail("Serial", candidate.serial ?? "—")
                 Detail("USB interfaces", candidate.interfaces.isEmpty ? "—" : candidate.interfaces.map(describe).joined(separator: ", "))
                 Detail("macOS sees", macOSDescription)
             }
 
-            if candidate.hid == nil {
+            if candidate.hid == nil && !readsInputs {
                 Label("macOS has no driver for this mode, so its buttons can't be read. Switch the controller to Switch or DInput/Android mode to test buttons.",
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -237,6 +243,8 @@ extension DirectionState {
 struct ButtonTestView: View {
     let snapshot: PadSnapshot
     let onToggleSkip: ([String]) -> Void
+    /// Present when PadCheck can drive this controller's motors.
+    let onVibrate: (() -> Void)?
 
     private static let wideBreakpoint: CGFloat = 820
     private static let belowDiagram: CGFloat = 110  // "Other buttons" row and the source note
@@ -290,6 +298,10 @@ struct ButtonTestView: View {
             } else {
                 Text("This controller has no standard gamepad layout; use the checklist.")
                     .foregroundStyle(.secondary)
+            }
+            if let onVibrate {
+                Button("Test Vibration", systemImage: "waveform", action: onVibrate)
+                    .help("Runs both motors for half a second")
             }
             Label("Reading inputs from \(snapshot.source)", systemImage: "antenna.radiowaves.left.and.right")
                 .font(.callout)

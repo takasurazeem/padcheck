@@ -1,2 +1,7 @@
 build/
 .DS_Store
+
+# Local-only reverse-engineering notes, probes and decompiler output
+research/
+*.gpr
+*.rep/

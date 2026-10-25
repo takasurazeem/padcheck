@@ -45,6 +45,11 @@ func report(_ candidates: [Candidate]) {
         if let s = c.serial { row("Serial", s) }
         if let f = c.firmware { row("Firmware rev", f) }
         row("Connection", c.transport)
+        if Nova2LiteMonitor.matches(c), let nova = Nova2LiteMonitor() {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))  // wait for the version reply
+            row("GameSir version", nova.firmwareDescription ?? "no reply")
+            nova.close()
+        }
         if !c.interfaces.isEmpty { row("USB interfaces", c.interfaces.map(describe).joined(separator: ", ")) }
 
         switch c.authenticity {
@@ -61,7 +66,7 @@ func report(_ candidates: [Candidate]) {
         } else {
             row("GameSir?", "No GameSir signature found")
         }
-        if c.hid == nil {
+        if c.hid == nil && !Nova2LiteMonitor.matches(c) {
             print("  \(yellow)macOS has no driver for this mode, so its buttons can't be read here.")
             print("  Switch the controller to Switch or DInput/Android mode to test buttons.\(reset)")
         }
@@ -100,6 +105,7 @@ func quit() -> Never {
         tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios)
     }
     summary?().forEach { print($0) }
+    padSource?.close()  // e.g. turn the Nova 2 Lite's state reports back off
     exit(0)
 }
 
@@ -295,10 +301,15 @@ guard renderer != nil else {
 print(logMode ? "\nLogging input events — Ctrl-C to stop.\n" : "")
 enterTUI()
 
-signal(SIGINT, SIG_IGN)
-let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-sigint.setEventHandler { quit() }
-sigint.resume()
+// Ctrl-C, kill, and a closed output pipe (e.g. `padcheck --log | head`) all exit through
+// quit(), so a controller is never left with something switched on.
+let signalSources = [SIGINT, SIGTERM, SIGPIPE].map { sig -> DispatchSourceSignal in
+    signal(sig, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+    source.setEventHandler { quit() }
+    source.resume()
+    return source
+}
 
 let stdinSource = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: .main)
 stdinSource.setEventHandler {

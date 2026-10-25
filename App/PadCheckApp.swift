@@ -43,14 +43,23 @@ final class PadModel: ObservableObject {
             Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.rescan() },
         ]
         timers.forEach { RunLoop.main.add($0, forMode: .common) }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
+                                               queue: .main) { [weak self] _ in self?.source?.close() }
     }
 
     var candidate: Candidate? {
         candidates.first { $0.id == selectedID } ?? candidates.first
     }
 
-    /// What the button test reads from: decoded Switch reports when possible, else GameController.
-    private(set) var source: PadSource?
+    /// What the button test reads from: decoded Switch reports or the Nova 2 Lite's
+    /// configuration interface when possible, else GameController.
+    private(set) var source: PadSource? {
+        willSet { if newValue !== source { source?.close() } }
+    }
+    private var sourceCandidateID: String?
+
+    /// The Nova 2 Lite reader when that's the selected controller (firmware, vibration).
+    var nova: Nova2LiteMonitor? { source as? Nova2LiteMonitor }
 
     func rescan() {
         candidates = findCandidates()
@@ -59,7 +68,7 @@ final class PadModel: ObservableObject {
             selectedID = first  // didSet re-enters rescan with a valid selection
             return
         }
-        var changed = source == nil
+        var changed = source == nil || candidate?.id != sourceCandidateID
         let controller = gameController(for: candidate, among: candidates)
         if gc?.controller !== controller {
             gc = controller.map(GCMonitor.init)
@@ -75,7 +84,11 @@ final class PadModel: ObservableObject {
             hid = HIDMonitor(device)
             changed = true
         }
-        if changed { source = makePadSource(for: candidate, hid: hid, gc: gc) }
+        if changed {
+            source = nil  // let the old source turn off anything it enabled before a new one opens
+            source = makePadSource(for: candidate, hid: hid, gc: gc)
+            sourceCandidateID = candidate?.id
+        }
     }
 
     func reset() {
