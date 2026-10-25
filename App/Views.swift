@@ -144,7 +144,7 @@ struct IdentityCard: View {
                 .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: 4), spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), alignment: .topLeading)], spacing: 10) {
                 Detail("USB ID", "\(hex4(candidate.vid)):\(hex4(candidate.pid))  ·  \(candidate.vendorOwner)")
                 Detail("Manufacturer", candidate.manufacturer.map { "\"\($0)\"" } ?? "None reported")
                 Detail("Product", candidate.product.map { "\"\($0)\"" } ?? "None reported")
@@ -232,44 +232,73 @@ extension DirectionState {
 
 // MARK: - Button test
 
+/// Side by side when there's room; stacked and scrolling in narrow windows. The diagram
+/// scales to whatever space its column gets.
 struct ButtonTestView: View {
     let snapshot: PadSnapshot
 
+    private static let wideBreakpoint: CGFloat = 820
+    private static let belowDiagram: CGFloat = 110  // "Other buttons" row and the source note
+
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 16) {
-                if snapshot.buttons.contains(where: { $0.role != nil }) {
-                    ControllerDiagram(snapshot: snapshot)
-                    let others = snapshot.buttons.filter { $0.role == nil }
-                    if !others.isEmpty {
-                        Text("Other buttons").font(.headline)
-                        HStack(spacing: 8) {
-                            ForEach(others, id: \.id) { b in
-                                Text(b.name)
-                                    .font(.callout.weight(.medium))
-                                    .padding(.horizontal, 12).padding(.vertical, 6)
-                                    .background(b.state.fill, in: Capsule())
-                                    .overlay(Capsule().strokeBorder(b.state.stroke, lineWidth: 1.5))
-                                    .foregroundStyle(b.pressed ? .white : .primary)
-                            }
+        GeometryReader { geo in
+            if geo.size.width >= Self.wideBreakpoint {
+                HStack(alignment: .top, spacing: 24) {
+                    let column = geo.size.width * 0.5
+                    diagramColumn(scale: scale(width: column, height: geo.size.height - Self.belowDiagram))
+                        .frame(width: column, alignment: .topLeading)
+                    Checklist(snapshot: snapshot, scrolls: true)
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        diagramColumn(scale: scale(width: geo.size.width, height: 420))
+                            .frame(maxWidth: .infinity)
+                        Checklist(snapshot: snapshot, scrolls: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func scale(width: CGFloat, height: CGFloat) -> CGFloat {
+        min(max(min(width / ControllerDiagram.size.width, height / ControllerDiagram.size.height), 0.5), 1.6)
+    }
+
+    private func diagramColumn(scale: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if snapshot.buttons.contains(where: { $0.role != nil }) {
+                ControllerDiagram(snapshot: snapshot)
+                    .scaleEffect(scale, anchor: .topLeading)
+                    .frame(width: ControllerDiagram.size.width * scale,
+                           height: ControllerDiagram.size.height * scale, alignment: .topLeading)
+                let others = snapshot.buttons.filter { $0.role == nil }
+                if !others.isEmpty {
+                    Text("Other buttons").font(.headline)
+                    HStack(spacing: 8) {
+                        ForEach(others, id: \.id) { b in
+                            Text(b.name)
+                                .font(.callout.weight(.medium))
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(b.state.fill, in: Capsule())
+                                .overlay(Capsule().strokeBorder(b.state.stroke, lineWidth: 1.5))
+                                .foregroundStyle(b.pressed ? .white : .primary)
                         }
                     }
-                } else {
-                    Text("This controller has no standard gamepad layout; use the checklist.")
-                        .foregroundStyle(.secondary)
                 }
-                Label("Reading inputs from \(snapshot.source)", systemImage: "antenna.radiowaves.left.and.right")
-                    .font(.callout)
+            } else {
+                Text("This controller has no standard gamepad layout; use the checklist.")
                     .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
             }
-            Checklist(snapshot: snapshot)
-                .frame(minWidth: 300, maxWidth: 380)
+            Label("Reading inputs from \(snapshot.source)", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 }
 
 struct ControllerDiagram: View {
+    static let size = CGSize(width: 480, height: 345)
     let snapshot: PadSnapshot
 
     var body: some View {
@@ -299,17 +328,39 @@ struct ControllerDiagram: View {
                 StickView(stick: stick, click: s.button(.rightStickClick)).position(x: 284, y: 210)
             }
 
-            if let b = s.button(.north) { FaceButton(button: b).position(x: 350, y: 96) }
-            if let b = s.button(.south) { FaceButton(button: b).position(x: 350, y: 168) }
-            if let b = s.button(.west) { FaceButton(button: b).position(x: 314, y: 132) }
-            if let b = s.button(.east) { FaceButton(button: b).position(x: 386, y: 132) }
+            if let b = s.button(.north) { FaceButton(button: b).position(x: 360, y: 96) }
+            if let b = s.button(.south) { FaceButton(button: b).position(x: 360, y: 168) }
+            if let b = s.button(.west) { FaceButton(button: b).position(x: 324, y: 132) }
+            if let b = s.button(.east) { FaceButton(button: b).position(x: 396, y: 132) }
 
-            if let b = s.button(.options) { FaceButton(button: b, size: 26).position(x: 206, y: 110) }
-            if let b = s.button(.menu) { FaceButton(button: b, size: 26).position(x: 274, y: 110) }
+            if let b = s.button(.options) { SmallButton(button: b).position(x: 202, y: 110) }
+            if let b = s.button(.menu) { SmallButton(button: b).position(x: 274, y: 110) }
             if let b = s.button(.share) { FaceButton(button: b, size: 26).position(x: 212, y: 154) }
             if let b = s.button(.home) { FaceButton(button: b, size: 30).position(x: 268, y: 154) }
         }
-        .frame(width: 480, height: 345)
+        .frame(width: Self.size.width, height: Self.size.height)
+    }
+}
+
+/// Menu-style buttons (+/−, Options/Create): a short symbol in a circle, otherwise a small
+/// labelled pill, since several controllers give both the same symbol.
+struct SmallButton: View {
+    let button: PadButtonState
+
+    var body: some View {
+        if !button.label.isEmpty {
+            FaceButton(button: button, size: 26)
+        } else {
+            let state = button.state
+            Text(diagramLabel(button, String(button.name.prefix(1))))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(Capsule().fill(state.fill))
+                .overlay(Capsule().strokeBorder(state.stroke, lineWidth: 1.5))
+                .foregroundStyle(state == .pressed ? .white : .primary)
+                .help(button.name)
+        }
     }
 }
 
@@ -327,7 +378,7 @@ struct ControllerBody: Shape {
 /// Diagram label for buttons without a short name, from the button's own name.
 private func diagramLabel(_ b: PadButtonState, _ fallback: String) -> String {
     let bare = b.name.replacingOccurrences(of: " Button", with: "")
-    return bare.count <= 6 ? bare : fallback
+    return bare.count <= 7 ? bare : fallback
 }
 
 struct FaceButton: View {
@@ -463,6 +514,8 @@ struct DpadView: View {
 
 struct Checklist: View {
     let snapshot: PadSnapshot
+    /// False when an outer scroll view already scrolls the checklist.
+    let scrolls: Bool
 
     var body: some View {
         let totals = snapshot.totals
@@ -479,27 +532,49 @@ struct Checklist: View {
             if totals.verified == totals.total {
                 Label("Every input responded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
-                Text("Press every button, pull each trigger, and push each stick and the d-pad all four ways.")
-                    .font(.callout).foregroundStyle(.secondary)
+                // Once only a few remain, name them so nothing left hides below the fold.
+                let remaining = totals.missing.count
+                Text(remaining <= 8
+                     ? "\(Text("Still to test:").bold()) \(totals.missing.joined(separator: ", "))"
+                     : "\(Text("\(remaining) inputs still to test").bold()). They're listed here once 8 or fewer remain.")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            List {
-                Section("Buttons") {
-                    ForEach(snapshot.buttons, id: \.id) { b in
-                        row(b.name, verified: b.verified, pressed: b.pressed,
-                            detail: b.isAnalog ? String(format: "%.2f", b.value) : nil)
-                    }
-                }
-                ForEach(snapshot.sticks, id: \.id) { s in
-                    Section(s.name) {
-                        ForEach(s.directions, id: \.0) { dir, d in
-                            row(dir, verified: d.verified, pressed: d.pressed, detail: nil)
-                        }
-                    }
-                }
+            if scrolls {
+                ScrollView { sections }
+            } else {
+                sections
             }
-            .listStyle(.inset)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
+    }
+
+    private var sections: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+            card("Buttons") {
+                ForEach(snapshot.buttons, id: \.id) { b in
+                    row(b.name, verified: b.verified, pressed: b.pressed,
+                        detail: b.isAnalog ? String(format: "%.2f", b.value) : nil)
+                }
+            }
+            ForEach(snapshot.sticks, id: \.id) { s in
+                card(s.name) {
+                    ForEach(s.directions, id: \.0) { dir, d in
+                        row(dir, verified: d.verified, pressed: d.pressed, detail: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func row(_ name: String, verified: Bool, pressed: Bool, detail: String?) -> some View {

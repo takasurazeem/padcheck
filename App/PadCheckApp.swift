@@ -10,7 +10,7 @@ struct PadCheckApp: App {
         WindowGroup("PadCheck") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 980, minHeight: 780)
+                .frame(minWidth: 640, minHeight: 640)
         }
         .windowResizability(.contentMinSize)
     }
