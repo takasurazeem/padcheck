@@ -82,4 +82,27 @@ final class PadModel: ObservableObject {
         source?.reset()
         hid?.resetState()
     }
+
+    // MARK: Inputs a controller doesn't have
+
+    private static let skippedKey = "skippedInputs"
+
+    /// Per controller ID, remembered across launches.
+    @Published private var skipped: [String: Set<String>] =
+        (UserDefaults.standard.dictionary(forKey: skippedKey) as? [String: [String]] ?? [:]).mapValues(Set.init)
+
+    var snapshot: PadSnapshot? {
+        guard var s = source?.snapshot() else { return nil }
+        s.skipped = candidate.flatMap { skipped[$0.id] } ?? []
+        return s
+    }
+
+    /// Skips the given inputs, or counts them again if they're all skipped already.
+    func toggleSkip(_ names: [String]) {
+        guard let id = candidate?.id else { return }
+        var set = skipped[id] ?? []
+        if names.allSatisfy(set.contains) { set.subtract(names) } else { set.formUnion(names) }
+        skipped[id] = set.isEmpty ? nil : set
+        UserDefaults.standard.set(skipped.mapValues { Array($0) }, forKey: Self.skippedKey)
+    }
 }

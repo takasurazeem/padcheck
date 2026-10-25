@@ -362,15 +362,27 @@ struct PadSnapshot {
     let buttons: [PadButtonState]
     let sticks: [PadStickState]
     let battery: Float?
+    /// Input names the user said this controller doesn't have; left out of the totals.
+    var skipped: Set<String> = []
 
     func button(_ role: PadRole) -> PadButtonState? { buttons.first { $0.role == role } }
     func stick(_ role: StickRole) -> PadStickState? { sticks.first { $0.role == role } }
 
+    static func inputName(_ stick: PadStickState, _ direction: String) -> String { "\(stick.name) \(direction)" }
+
+    /// Every checklist input as (name, verified).
+    var inputs: [(String, Bool)] {
+        buttons.map { ($0.name, $0.verified) }
+            + sticks.flatMap { s in s.directions.map { (Self.inputName(s, $0.0), $0.1.verified) } }
+    }
+
+    /// A skipped input that responds anyway counts again.
+    func isSkipped(_ name: String, verified: Bool) -> Bool { !verified && skipped.contains(name) }
+
     var totals: (verified: Int, total: Int, missing: [String]) {
-        var missing = buttons.filter { !$0.verified }.map(\.name)
-        for s in sticks { missing += s.directions.filter { !$0.1.verified }.map { "\(s.name) \($0.0)" } }
-        let total = buttons.count + sticks.count * 4
-        return (total - missing.count, total, missing)
+        let counted = inputs.filter { !isSkipped($0.0, verified: $0.1) }
+        let missing = counted.filter { !$0.1 }.map(\.0)
+        return (counted.count - missing.count, counted.count, missing)
     }
 }
 

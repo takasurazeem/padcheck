@@ -28,8 +28,8 @@ struct ContentView: View {
                 .frame(width: 260)
                 switch tab {
                 case .buttons:
-                    if let source = model.source {
-                        ButtonTestView(snapshot: source.snapshot())
+                    if let snapshot = model.snapshot {
+                        ButtonTestView(snapshot: snapshot, onToggleSkip: model.toggleSkip)
                     } else {
                         ContentUnavailableView("macOS isn't exposing this controller to games",
                                                systemImage: "gamecontroller",
@@ -236,6 +236,7 @@ extension DirectionState {
 /// scales to whatever space its column gets.
 struct ButtonTestView: View {
     let snapshot: PadSnapshot
+    let onToggleSkip: ([String]) -> Void
 
     private static let wideBreakpoint: CGFloat = 820
     private static let belowDiagram: CGFloat = 110  // "Other buttons" row and the source note
@@ -247,14 +248,14 @@ struct ButtonTestView: View {
                     let column = geo.size.width * 0.5
                     diagramColumn(scale: scale(width: column, height: geo.size.height - Self.belowDiagram))
                         .frame(width: column, alignment: .topLeading)
-                    Checklist(snapshot: snapshot, scrolls: true)
+                    Checklist(snapshot: snapshot, scrolls: true, onToggleSkip: onToggleSkip)
                 }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         diagramColumn(scale: scale(width: geo.size.width, height: 420))
                             .frame(maxWidth: .infinity)
-                        Checklist(snapshot: snapshot, scrolls: false)
+                        Checklist(snapshot: snapshot, scrolls: false, onToggleSkip: onToggleSkip)
                     }
                 }
             }
@@ -516,6 +517,13 @@ struct Checklist: View {
     let snapshot: PadSnapshot
     /// False when an outer scroll view already scrolls the checklist.
     let scrolls: Bool
+    let onToggleSkip: ([String]) -> Void
+
+    /// Touchpad inputs, offered as one "no touchpad" skip because look-alike pads
+    /// (a GameSir posing as a DualShock 4) report a touchpad they don't have.
+    private var touchpadInputs: [String] {
+        snapshot.inputs.filter { $0.0.contains("Touchpad") }.map(\.0)
+    }
 
     var body: some View {
         let totals = snapshot.totals
@@ -541,6 +549,19 @@ struct Checklist: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            HStack(spacing: 12) {
+                if !touchpadInputs.isEmpty {
+                    let allSkipped = touchpadInputs.allSatisfy(snapshot.skipped.contains)
+                    Button(allSkipped ? "Count touchpad again" : "No touchpad",
+                           systemImage: allSkipped ? "arrow.uturn.backward" : "rectangle.slash") {
+                        onToggleSkip(touchpadInputs)
+                    }
+                    .help("For controllers that report a touchpad they don't have")
+                }
+                Text("Right-click an input or section to skip it.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             if scrolls {
                 ScrollView { sections }
             } else {
@@ -551,38 +572,46 @@ struct Checklist: View {
 
     private var sections: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-            card("Buttons") {
+            card("Buttons", inputs: snapshot.buttons.map(\.name)) {
                 ForEach(snapshot.buttons, id: \.id) { b in
-                    row(b.name, verified: b.verified, pressed: b.pressed,
+                    row(b.name, input: b.name, verified: b.verified, pressed: b.pressed,
                         detail: b.isAnalog ? String(format: "%.2f", b.value) : nil)
                 }
             }
             ForEach(snapshot.sticks, id: \.id) { s in
-                card(s.name) {
+                card(s.name, inputs: s.directions.map { PadSnapshot.inputName(s, $0.0) }) {
                     ForEach(s.directions, id: \.0) { dir, d in
-                        row(dir, verified: d.verified, pressed: d.pressed, detail: nil)
+                        row(dir, input: PadSnapshot.inputName(s, dir), verified: d.verified, pressed: d.pressed, detail: nil)
                     }
                 }
             }
         }
     }
 
-    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func card<Content: View>(_ title: String, inputs: [String], @ViewBuilder content: () -> Content) -> some View {
+        let allSkipped = inputs.allSatisfy(snapshot.skipped.contains)
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             content()
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
+        .contextMenu {
+            Button(allSkipped ? "Count All of \(title) Again" : "Controller Doesn't Have \(title)") { onToggleSkip(inputs) }
+        }
     }
 
-    private func row(_ name: String, verified: Bool, pressed: Bool, detail: String?) -> some View {
-        HStack {
-            Image(systemName: verified ? "checkmark.circle.fill" : "circle")
+    private func row(_ name: String, input: String, verified: Bool, pressed: Bool, detail: String?) -> some View {
+        let skipped = snapshot.isSkipped(input, verified: verified)
+        return HStack {
+            Image(systemName: verified ? "checkmark.circle.fill" : skipped ? "minus.circle" : "circle")
                 .foregroundStyle(verified ? .green : .secondary)
             Text(name)
+                .strikethrough(skipped)
+                .foregroundStyle(skipped ? .tertiary : .primary)
             Spacer()
+            if skipped { Text("Skipped").font(.caption).foregroundStyle(.tertiary) }
             if let detail { Text(detail).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
             if pressed {
                 Text("ON")
@@ -590,6 +619,12 @@ struct Checklist: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.accentColor, in: Capsule())
                     .foregroundStyle(.white)
+            }
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(snapshot.skipped.contains(input) ? "Count This Input Again" : "Controller Doesn't Have This Input") {
+                onToggleSkip([input])
             }
         }
     }

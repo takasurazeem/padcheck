@@ -33,6 +33,11 @@ Each input turns green once it has registered, and the checklist shows what's le
   reports, with changing bytes highlighted. This works for any HID controller,
   even ones macOS doesn't present to games.
 
+If a controller reports inputs it doesn't physically have (a GameSir posing as a
+DualShock 4 reports a touchpad, for example), click **No touchpad** or right-click any
+input or section and mark it as missing. Skipped inputs are left out of the count and
+remembered per controller.
+
 Controllers in XInput mode over USB can be identified, but macOS has no driver for them,
 so their buttons can't be read. Switch the controller to Switch or DInput/Android mode to
 test them.
