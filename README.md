@@ -16,6 +16,9 @@ button, trigger, stick and d-pad direction**.
   worked out from the emulated IDs and the USB interface classes.
 - Manufacturer and product strings, serial, firmware revision, connection, battery.
 
+With several controllers connected, pick one from the **Controller** dropdown; **Refresh**
+(⌘R) scans again. The app also rescans on its own every couple of seconds.
+
 ## Testing inputs
 
 Each input turns green once it has registered, and the checklist shows what's left.

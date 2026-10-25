@@ -17,15 +17,8 @@ struct ContentView: View {
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
+            ControllerBar()
             if let candidate = model.candidate {
-                if model.candidates.count > 1 {
-                    Picker("Controller", selection: $model.selection) {
-                        ForEach(model.candidates.indices, id: \.self) { i in
-                            Text(model.candidates[i].product ?? "Controller \(i + 1)").tag(i)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
                 IdentityCard(candidate: candidate, gameController: model.gc?.controller)
                 Picker("View", selection: $tab) {
                     ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -62,9 +55,53 @@ struct ContentView: View {
         .toolbar {
             Button("Reset Checklist", systemImage: "arrow.counterclockwise") { model.reset() }
                 .help("Clear which inputs have been verified")
-            Button("Rescan", systemImage: "arrow.clockwise") { model.rescan() }
-                .help("Look for controllers again")
         }
+    }
+}
+
+/// Picks which connected controller to inspect, and scans for controllers again.
+struct ControllerBar: View {
+    @EnvironmentObject private var model: PadModel
+    @State private var lastScan = Date()
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Picker("Controller", selection: $model.selectedID) {
+                if model.candidates.isEmpty {
+                    Text("No controllers").tag(String?.none)
+                }
+                ForEach(model.candidates, id: \.id) { c in
+                    Text(menuTitle(c)).tag(Optional(c.id))
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 520)
+            .disabled(model.candidates.isEmpty)
+
+            Button {
+                model.rescan()
+                lastScan = Date()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .help("Scan for controllers again")
+            .keyboardShortcut("r", modifiers: .command)
+
+            Text(model.candidates.count == 1 ? "1 controller connected" : "\(model.candidates.count) controllers connected")
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("Scanned \(lastScan.formatted(date: .omitted, time: .standard))")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func menuTitle(_ c: Candidate) -> String {
+        var parts = [c.displayName]
+        // "Nintendo Switch Pro Controller by Zikway" tells two look-alike pads apart.
+        if c.isEmulating, let m = c.manufacturer { parts.append("by \(m)") }
+        parts.append("· \(modeFor(c)) · \(c.transport)")
+        return parts.joined(separator: " ")
     }
 }
 

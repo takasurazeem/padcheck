@@ -20,7 +20,9 @@ struct PadCheckApp: App {
 /// so the model republishes at 30 Hz while the window is up.
 final class PadModel: ObservableObject {
     @Published private(set) var candidates: [Candidate] = []
-    @Published var selection = 0
+    @Published var selectedID: String? {
+        didSet { if selectedID != oldValue { rescan() } }
+    }
     private(set) var gc: GCMonitor?
     private(set) var hid: HIDMonitor?
     let hidStatus: IOReturn
@@ -44,7 +46,7 @@ final class PadModel: ObservableObject {
     }
 
     var candidate: Candidate? {
-        candidates.indices.contains(selection) ? candidates[selection] : candidates.first
+        candidates.first { $0.id == selectedID } ?? candidates.first
     }
 
     /// What the button test reads from: decoded Switch reports when possible, else GameController.
@@ -52,8 +54,13 @@ final class PadModel: ObservableObject {
 
     func rescan() {
         candidates = findCandidates()
+        // Keep the user's pick while it's still connected; otherwise fall back to the first one.
+        if !candidates.contains(where: { $0.id == selectedID }), let first = candidates.first?.id {
+            selectedID = first  // didSet re-enters rescan with a valid selection
+            return
+        }
         var changed = source == nil
-        let controller = GCController.controllers().first
+        let controller = gameController(for: candidate, among: candidates)
         if gc?.controller !== controller {
             gc = controller.map(GCMonitor.init)
             changed = true

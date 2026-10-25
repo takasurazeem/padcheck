@@ -137,7 +137,11 @@ struct Candidate {
     var transport: String
     var interfaces: [USBInterface]
     var hid: IOHIDDevice?
+    var locationID: Int
 
+    /// Stays the same across rescans so a selection survives devices coming and going.
+    var id: String { "\(hex4(vid)):\(hex4(pid))#\(serial ?? String(locationID))" }
+    var displayName: String { knownName ?? product ?? "Unknown controller" }
     var knownName: String? { knownPads[vid]?[pid]?.name }
     var vendorOwner: String { vendorNames[vid] ?? "unknown vendor" }
     var firmware: String? { bcd.map { String(format: "%X.%02X", $0 >> 8, $0 & 0xFF) } }
@@ -149,6 +153,11 @@ struct Candidate {
         guard let genuine = genuineManufacturers[vid], let name = knownName ?? vendorNames[vid] else { return nil }
         guard let m = manufacturer?.lowercased() else { return .unknown }
         return genuine.contains(where: { m.contains($0) }) ? .genuine(name) : .emulating(name)
+    }
+
+    var isEmulating: Bool {
+        if case .emulating? = authenticity { return true }
+        return false
     }
 }
 
@@ -172,7 +181,8 @@ func findCandidates() -> [Candidate] {
             bcd: u?.bcd ?? hidProp(d, kIOHIDVersionNumberKey) as? Int,
             transport: hidProp(d, kIOHIDTransportKey) as? String ?? "?",
             interfaces: u?.interfaces ?? [],
-            hid: d))
+            hid: d,
+            locationID: loc))
     }
 
     // Controllers macOS has no HID driver for (XInput / GIP) only show up at the USB level.
@@ -181,7 +191,7 @@ func findCandidates() -> [Candidate] {
         guard isXbox || knownPads[u.vid]?[u.pid] != nil else { continue }
         candidates.append(Candidate(
             vid: u.vid, pid: u.pid, manufacturer: u.manufacturer, product: u.product, serial: u.serial,
-            bcd: u.bcd, transport: "USB", interfaces: u.interfaces, hid: nil))
+            bcd: u.bcd, transport: "USB", interfaces: u.interfaces, hid: nil, locationID: u.locationID))
     }
     return candidates
 }
@@ -462,6 +472,22 @@ final class SwitchProMonitor: PadSource {
             sticks: sticks(from: b).sorted { $0.name < $1.name },
             battery: nil)
     }
+}
+
+/// GameController doesn't expose USB IDs, so pair by name: the controller whose name matches
+/// the candidate's product string, else the one at the same position among HID candidates.
+func gameController(for candidate: Candidate?, among candidates: [Candidate]) -> GCController? {
+    let controllers = GCController.controllers()
+    guard let candidate else { return controllers.first }
+    if let product = candidate.product?.lowercased(),
+       let named = controllers.first(where: { $0.vendorName?.lowercased() == product }) {
+        return named
+    }
+    let hidCandidates = candidates.filter { $0.hid != nil }
+    guard let i = hidCandidates.firstIndex(where: { $0.id == candidate.id }), controllers.indices.contains(i) else {
+        return controllers.count == 1 && hidCandidates.count <= 1 ? controllers.first : nil
+    }
+    return controllers[i]
 }
 
 /// Prefers decoding Switch reports directly; otherwise uses macOS GameController.
