@@ -26,7 +26,9 @@ Each input turns green once it has registered, and the checklist shows what's le
 - **Switch-mode controllers** are read straight from their own `0x30` input reports.
   macOS's GameController framework drops face buttons and Capture from some third-party
   Switch-mode pads, so PadCheck doesn't rely on it for these.
-- **Other controllers** are read through the GameController framework.
+- **Other controllers** are read through the GameController framework. While PadCheck is
+  in front it turns off macOS's controller shortcuts (HOME/PS opening the Games app,
+  Share taking a screenshot) so those buttons can be tested too.
 - **Raw HID view** shows every HID button and axis plus a live hex dump of the input
   reports, with changing bytes highlighted. This works for any HID controller,
   even ones macOS doesn't present to games.

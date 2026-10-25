@@ -230,6 +230,11 @@ final class GCMonitor {
 
     init(_ controller: GCController) {
         self.controller = controller
+        // Without this, macOS swallows system-gesture buttons (HOME/PS opens the Games app,
+        // Share/Create takes a screenshot) so they never reach us. Applies while we're frontmost.
+        for element in controller.physicalInputProfile.allElements {
+            element.preferredSystemGestureState = .disabled
+        }
         controller.physicalInputProfile.valueDidChangeHandler = { [weak self] _, element in
             self?.record(element)
         }
