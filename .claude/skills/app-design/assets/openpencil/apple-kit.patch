@@ -1,0 +1,52 @@
+diff --git a/packages/core/src/io/remote/file.ts b/packages/core/src/io/remote/file.ts
+index f260ed7..31b13ab 100644
+--- a/packages/core/src/io/remote/file.ts
++++ b/packages/core/src/io/remote/file.ts
+@@ -34,7 +34,7 @@ export interface RemoteFile {
+ }
+ 
+ /** The most a file fetched from an address may hold. Well past any real page or design file. */
+-export const MAX_REMOTE_FILE_BYTES = 64 * 1024 * 1024
++export const MAX_REMOTE_FILE_BYTES = 512 * 1024 * 1024
+ 
+ /**
+  * How long one remote file may take to arrive, headers and body: a server that sends a byte now
+diff --git a/packages/fig/src/document/variables.ts b/packages/fig/src/document/variables.ts
+index 11d5511..b0ed2d9 100644
+--- a/packages/fig/src/document/variables.ts
++++ b/packages/fig/src/document/variables.ts
+@@ -320,7 +320,7 @@ export function materializeVariableResources(
+   onUnsupportedExpression?: ExpressionReporter
+ ): void {
+   const report = (resource: NodeChange, reason: string): void => {
+-    if (!onUnsupported) throw new Error(`Unsupported document resource ${resource.type}: ${reason}`)
++    if (!onUnsupported) { console.warn(`Skipped unsupported ${resource.type} "${resource.name ?? ''}": ${reason}`); return }
+     onUnsupported(structuredClone(resource))
+   }
+   for (const resource of resources) {
+diff --git a/packages/mcp/src/tool/output.ts b/packages/mcp/src/tool/output.ts
+index 8ca73a1..d2ef063 100644
+--- a/packages/mcp/src/tool/output.ts
++++ b/packages/mcp/src/tool/output.ts
+@@ -270,7 +270,7 @@ export function writesFileOutput(toolName: string): boolean {
+ }
+ 
+ /** The largest document `/files` passes either way, as the app caps documents it fetches. */
+-export const MAX_FILE_TRANSFER_BYTES = 64 * 1024 * 1024
++export const MAX_FILE_TRANSFER_BYTES = 512 * 1024 * 1024
+ 
+ /** Write `content` to a path inside `root`, creating its folders, and return where it landed. */
+ export async function writeInsideRoot(
+diff --git a/src/app/document/io/browser.ts b/src/app/document/io/browser.ts
+index 1ddefaa..e44ab89 100644
+--- a/src/app/document/io/browser.ts
++++ b/src/app/document/io/browser.ts
+@@ -8,7 +8,7 @@ import { nextShownFrame } from '@open-pencil/vue/shared/frame'
+ /** How long a download's link stays after its click: long enough for the browser to start it. */
+ const DOWNLOAD_LINK_LIFETIME_MS = 100
+ 
+-export const MAX_REMOTE_DOCUMENT_BYTES = 64 * 1024 * 1024
++export const MAX_REMOTE_DOCUMENT_BYTES = 512 * 1024 * 1024
+ 
+ export function resolveBrowserFileURL(path: string): URL {
+   const url = new URL(path, window.location.href)

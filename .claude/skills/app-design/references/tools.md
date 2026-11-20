@@ -42,11 +42,39 @@ Use the absolute path from `which` if Node comes from nvm/fnm, since apps launch
 **Follow-along workflow.** Before phase 3, tell the owner to open OpenPencil, then design directly on its canvas: one page per phase (Directions, Design system, one page per platform for screens), frames named `<Screen> / <state> / <mode> / <device>`. Build in visible steps (structure, then components, then content) rather than one giant `render`, so the owner can follow and interrupt. Save the document into `design/` (`.fig`) and export PNGs into `design/screens/` for the docs and handoff.
 
 Known limits (as of v0.16 stable / v0.17 beta, Nov 2026):
-- **Apple's iOS and iPadOS 27 kit does not open yet**, in the desktop app or through MCP. Files with Figma paint-type variables fail to import (open-pencil/open-pencil#2261; the iOS 27 kit has five), and files over 64 MiB can't be opened through MCP or URL (open-pencil/open-pencil#2260; the kit is ~160 MB). Until both are fixed, for Apple platforms use native previews (section 5) for final screens, and use OpenPencil for directions, flows, wireframes and the system specimen; or work from a smaller `.fig` holding just the components needed. Check the two issues before assuming this still holds.
+- **The official app can't open Apple's iOS and iPadOS 27 kit.** Files with Figma paint-type variables fail to import with "Unsupported document resource VARIABLE: unresolved collection, identity or type" (open-pencil/open-pencil#2261; the iOS 27 kit has five), and files over 64 MiB can't be opened through MCP or URL (open-pencil/open-pencil#2260; the kit is ~160 MB). Check the two issues first: once both are fixed, use the official app. Until then, either build the patched app below, or use native previews (section 5) for final Apple screens and OpenPencil for directions, flows, wireframes and the specimen.
+- **Patched build (until the fixes ship).** `assets/openpencil/apple-kit.patch` (against open-pencil `main` at d55675d, v0.17.0-beta.6) skips unsupported variables with a warning instead of aborting, and raises the 64 MiB caps to 512 MiB. Needs Rust, Bun and Xcode command line tools; the build takes 2–3 minutes after dependencies:
+
+  ```bash
+  git clone https://github.com/open-pencil/open-pencil && cd open-pencil
+  git apply <skill>/assets/openpencil/apple-kit.patch   # if it no longer applies, upstream has changed: re-check the issues
+  bun install && bun run build:packages
+  echo '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}' > /tmp/op-local.json
+  bun tauri build --bundles app --config /tmp/op-local.json
+  brew uninstall --cask openpencil 2>/dev/null
+  ditto target/release/bundle/macos/OpenPencil.app /Applications/OpenPencil.app && xattr -cr /Applications/OpenPencil.app
+  ditto /Applications/OpenPencil.app ~/OpenPencil-patched.app      # backup
+  npm install -g @open-pencil/mcp@<same version as the app>       # e.g. 0.17.0-beta.6; a mismatched MCP won't connect
+  ```
+
+  Then quit the app, delete a stale `~/Library/Application Support/OpenPencil/mcp.json` and `mcp.sock` if their `pid` is gone, and reopen. Open the big kit with **File → Open** (the MCP package's own 64 MiB cap isn't patched). Don't accept in-app updates or run `brew install --cask openpencil` while you rely on the patch: both restore the unpatched app (restore with `ditto ~/OpenPencil-patched.app /Applications/OpenPencil.app`). The five Alert button fill variables are dropped; everything else imports, including glass.
 - Material 3 and smaller kits open normally.
 - `set_effects` handles shadows and blur only; add Liquid Glass through `render` with `glass({...})`, or by instancing kit components that already carry glass.
 - In design JSX, `weight="semibold"` silently falls back to Regular; use numeric weights (600) or `bold`.
-- Fonts: SF Pro must be installed locally (Apple Developer fonts) or it is substituted.
+- Fonts must be installed locally or the kit substitutes them; see **Fonts** below.
+
+**Fonts.** Install the kits' fonts before opening them; `get_font_status` reports `"faithful": true` when nothing is substituted.
+- Apple: SF Pro, SF Compact, SF Mono, New York, SF Arabic from developer.apple.com/fonts (download the .dmg files and run the installers; licensed for designing Apple-platform UI).
+- Everything open-licensed in one go:
+
+  ```bash
+  brew install --cask font-roboto font-roboto-flex font-roboto-mono font-roboto-serif \
+    font-google-sans-flex font-google-sans-code font-material-symbols \
+    font-inter font-geist font-geist-mono font-jetbrains-mono \
+    font-noto-sans font-noto-sans-arabic font-noto-naskh-arabic font-cantarell
+  ```
+  (Material 3: Roboto family, Google Sans Flex/Code, Material Symbols; web/shadcn: Inter, Geist; GNOME: Cantarell, Adwaita Sans/Mono ship with OpenPencil; Arabic: Noto Naskh/Sans Arabic. Add the project's own brand and script fonts.)
+- Windows: Segoe UI / Segoe UI Variable and Segoe Fluent Icons are licensed with Windows and can't be installed on a Mac. Windows mocks show a substitute; layout metrics still hold. Take final Windows screenshots on Windows.
 
 If the session has no OpenPencil tools, check `claude mcp list`; if `open-pencil` is missing, give the owner the setup above. If it's listed but tools fail, the app isn't open or has no document loaded.
 
