@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  Design system specimen: renders every color token in every mode, the type scale, spacing, radii
+  and motion straight from tokens.css. Copy to design/prototype/ and open in a browser.
+  Add component sections at the bottom (every state of each component).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design system specimen</title>
+<link rel="stylesheet" id="tokens" href="../tokens/build/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-family-body, system-ui); background: #E9E9EC; color: #16171B; }
+  header { padding: 24px 32px 8px; } h1 { margin: 0; font-size: 28px; } h2 { font-size: 18px; margin: 32px 0 12px; }
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding: 0 32px 32px; }
+  .mode { background: var(--color-surface-default); color: var(--color-text-primary); border-radius: 16px; padding: 20px; }
+  .mode h3 { margin: 0 0 12px; font-size: 14px; color: var(--color-text-secondary); font-weight: 600; }
+  .swatch { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; font-size: 12px; margin: 6px 0; }
+  .chip { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--color-border-subtle); }
+  .name { font-family: var(--font-family-mono, monospace); }
+  .val { color: var(--color-text-secondary); font-family: var(--font-family-mono, monospace); }
+  section { padding: 0 32px; }
+  .type div { margin: 6px 0; } .space div { background: var(--color-action-primary); height: 12px; margin: 6px 0; border-radius: 3px; }
+  .radii { display: flex; gap: 12px; flex-wrap: wrap; } .radii div { width: 80px; height: 56px; background: #fff; border: 1px solid #ccc; display: grid; place-items: center; font-size: 11px; }
+</style>
+</head>
+<body>
+<header><h1>Design system specimen</h1><p>Every color token rendered in each mode from <code>tokens.css</code>.</p></header>
+<div class="modes" id="modes"></div>
+<section><h2>Type scale</h2><div class="type" id="type"></div></section>
+<section><h2>Spacing</h2><div class="space" id="space"></div></section>
+<section><h2>Radii</h2><div class="radii" id="radii"></div></section>
+<section><h2>Components</h2><p>Add each component here in every state (default, hover, pressed, focused, selected, disabled, loading, error), built with the project's component library or as a native-kit export.</p></section>
+<script>
+  // Collect custom properties declared in tokens.css :root.
+  function rootVars() {
+    const names = new Set();
+    for (const sheet of document.styleSheets) {
+      let rules; try { rules = sheet.cssRules; } catch { continue; }
+      for (const r of rules) if (r.selectorText === ":root") for (const p of r.style) if (p.startsWith("--")) names.add(p);
+    }
+    return [...names];
+  }
+  const vars = rootVars();
+  const MODES = [["Light", "light", "standard"], ["Dark", "dark", "standard"], ["Light, increased contrast", "light", "more"], ["Dark, increased contrast", "dark", "more"]];
+  const colorVars = vars.filter((v) => v.startsWith("--color-") && !v.includes("primitive"));
+  const modes = document.getElementById("modes");
+  for (const [title, theme, contrast] of MODES) {
+    const box = document.createElement("div");
+    box.className = "mode"; box.dataset.theme = theme; box.dataset.contrast = contrast;
+    // The attribute selectors in tokens.css target :root, so apply the mode by scoping vars here.
+    box.innerHTML = `<h3>${title}</h3>` + colorVars.map((v) => `<div class="swatch"><div class="chip" style="background:var(${v})"></div><div><div class="name">${v}</div><div class="val" data-v="${v}"></div></div></div>`).join("");
+    modes.appendChild(box);
+  }
+  // Resolve each mode's values by temporarily switching the root attributes.
+  const root = document.documentElement;
+  for (const box of modes.children) {
+    root.dataset.theme = box.dataset.theme; root.dataset.contrast = box.dataset.contrast;
+    const cs = getComputedStyle(root);
+    for (const v of colorVars) { const val = cs.getPropertyValue(v).trim(); box.style.setProperty(v, val); box.querySelector(`[data-v="${v}"]`).textContent = val; }
+    for (const v of ["--color-surface-default", "--color-text-primary", "--color-text-secondary", "--color-border-subtle"]) box.style.setProperty(v, cs.getPropertyValue(v).trim());
+  }
+  root.dataset.theme = "light"; root.dataset.contrast = "standard";
+  const cs = getComputedStyle(root);
+  document.getElementById("type").innerHTML = vars.filter((v) => v.startsWith("--font-size-")).map((v) => `<div style="font-size:var(${v})">${v.replace("--font-size-", "")}: ${cs.getPropertyValue(v).trim()}. The quick brown fox jumps over the lazy dog</div>`).join("");
+  document.getElementById("space").innerHTML = vars.filter((v) => /^--space-\d+$/.test(v)).map((v) => `<div style="width:var(${v})" title="${v}"></div>`).join("");
+  document.getElementById("radii").innerHTML = vars.filter((v) => v.startsWith("--radius-")).map((v) => `<div style="border-radius:var(${v})">${v.replace("--radius-", "")}</div>`).join("");
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<!--
+  One screen = one file in design/screens/. States are sections with data-state; the URL picks one:
+  today.html?state=empty&theme=dark&contrast=more
+  WEB APPS: build with the project's component library (its CSS/markup or a small Vite app in
+  design/prototype-app/); do not hand-roll lookalikes of library components.
+  NATIVE APPS: use HTML only for wireframes/specimens; final screens come from the official kits.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Screen: Today</title>
+<link rel="stylesheet" href="../tokens/build/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; background: var(--color-surface-default); color: var(--color-text-primary);
+         font-family: var(--font-family-body); font-size: var(--font-size-body); line-height: 1.45;
+         -webkit-font-smoothing: antialiased; }
+  [data-state]:not(.active) { display: none; }
+  .screen { padding: var(--space-inset-screen); padding-top: max(var(--space-4), env(safe-area-inset-top)); }
+  h1 { font-size: var(--font-size-large); font-weight: var(--font-weight-bold); margin: var(--space-6) 0 var(--space-4); text-wrap: balance; }
+  .muted { color: var(--color-text-secondary); }
+  :focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--color-action-primary) 25%, transparent); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+<script>
+  const p = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = p.get("theme") || "light";
+  document.documentElement.dataset.contrast = p.get("contrast") || "standard";
+  addEventListener("DOMContentLoaded", () => {
+    const want = p.get("state") || "default";
+    const el = document.querySelector(`[data-state="${want}"]`) || document.querySelector("[data-state]");
+    if (el) el.classList.add("active");
+  });
+  // Link to another screen in the prototype viewer: go("habit")
+  function go(screen, state) { if (parent !== window) parent.postMessage({ go: screen, state }, "*"); }
+</script>
+</head>
+<body>
+  <main class="screen" data-state="default">
+    <h1>Today</h1>
+    <p class="muted">Replace with the real screen, composed from the component library and tokens.</p>
+  </main>
+  <main class="screen" data-state="empty">
+    <h1>Today</h1>
+    <p>No habits yet. Add the first one you want to keep.</p>
+  </main>
+  <main class="screen" data-state="loading" aria-busy="true"><h1>Today</h1><p class="muted">Loading skeleton…</p></main>
+  <main class="screen" data-state="error"><h1>Today</h1><p>Couldn't load your habits. Check your connection and try again.</p></main>
+  <main class="screen" data-state="offline"><h1>Today</h1><p class="muted">Offline. Changes will sync when you're back online.</p></main>
+</body>
+</html>
