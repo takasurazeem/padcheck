@@ -25,19 +25,30 @@ Rules:
 
 ## 2. OpenPencil through MCP
 
-OpenPencil (github.com/open-pencil/open-pencil, MIT) opens `.fig` files natively, so it can use Apple's and Material's kits directly, and exposes ~115 MCP tools to agents. Tested with the iOS and iPadOS 27 kit and Google's Material 3 kit: pages, component sets, instances, variables with modes (Light/Dark, contrast, Dynamic Type, Liquid Glass Bright) and **Figma Glass effects (refraction, depth, dispersion, light, frost) render faithfully**.
+OpenPencil (github.com/open-pencil/open-pencil, MIT) opens `.fig` files natively, so it can use Apple's and Material's kits directly, and exposes ~130 MCP tools to agents. Tested with the iOS and iPadOS 27 kit and Google's Material 3 kit: pages, component sets, instances, variables with modes (Light/Dark, contrast, Dynamic Type, Liquid Glass Bright) and **Figma Glass effects (refraction, depth, dispersion, light, frost) render faithfully**.
 
 Useful tools: `open_document`, `create_document`, `list_pages` / `switch_page`, `find_nodes` / `query_nodes`, `get_node`, `list_libraries` / `list_components` / `insert_library_component`, `create_instance`, `combine_as_variants`, `expose_instance_swap`, `create_slot`, `render` (design JSX → real layers; supports `defineVars`/`defineMode` for variables with modes and `glass()` for Liquid Glass), `set_layout`, `batch_update`, variables tools (`create_collection`, `create_variable`, `set_variable_mode`, `bind_variable`), `export_image` / `export_svg` / `export_pdf`, `lint` (includes contrast checks), `analyze_colors` / `analyze_typography` / `analyze_spacing`, `export_design_tokens`, comments and statuses ("Ready for dev").
 
-Known limits (as of v0.17 beta, Nov 2026):
-- **Files over 64 MiB can't be opened through MCP or URL** (open-pencil/open-pencil#2260). Apple's iOS kit is ~160 MB. Until fixed, open large kits from the desktop app's File → Open (not affected as far as known), or work from a smaller file that contains the components needed.
-- **Files with Figma paint-type variables fail to open** (open-pencil/open-pencil#2261); the iOS 27 kit has five (Alert button fills). Until fixed, the kit won't open unmodified.
+**Setup (once per machine; no server to host).** OpenPencil is a local desktop app; the agent drives the app the owner is looking at, so they can watch every layer appear live and edit alongside (agent edits are separate undo steps and never undo the owner's).
+
+```bash
+brew install --cask openpencil          # or download from openpencil.dev
+npm install -g @open-pencil/mcp
+claude mcp add --scope user open-pencil -- "$(which openpencil-mcp)"
+```
+
+Use the absolute path from `which` if Node comes from nvm/fnm, since apps launched outside a shell may not have it on PATH. The stdio server finds the running app by itself; **the app must be open with a document loaded** (File → New is enough). New MCP servers load in the next Claude Code session. Alternative: the app's own chat panel can run Claude Code as its agent (Settings → Models → Run guided setup).
+
+**Follow-along workflow.** Before phase 3, tell the owner to open OpenPencil, then design directly on its canvas: one page per phase (Directions, Design system, one page per platform for screens), frames named `<Screen> / <state> / <mode> / <device>`. Build in visible steps (structure, then components, then content) rather than one giant `render`, so the owner can follow and interrupt. Save the document into `design/` (`.fig`) and export PNGs into `design/screens/` for the docs and handoff.
+
+Known limits (as of v0.16 stable / v0.17 beta, Nov 2026):
+- **Apple's iOS and iPadOS 27 kit does not open yet**, in the desktop app or through MCP. Files with Figma paint-type variables fail to import (open-pencil/open-pencil#2261; the iOS 27 kit has five), and files over 64 MiB can't be opened through MCP or URL (open-pencil/open-pencil#2260; the kit is ~160 MB). Until both are fixed, for Apple platforms use native previews (section 5) for final screens, and use OpenPencil for directions, flows, wireframes and the system specimen; or work from a smaller `.fig` holding just the components needed. Check the two issues before assuming this still holds.
+- Material 3 and smaller kits open normally.
 - `set_effects` handles shadows and blur only; add Liquid Glass through `render` with `glass({...})`, or by instancing kit components that already carry glass.
 - In design JSX, `weight="semibold"` silently falls back to Regular; use numeric weights (600) or `bold`.
-- Running from source: the dev MCP bridge needs `OPENPENCIL_DEV_TOKEN` and `OPENPENCIL_DEV_ORIGIN` set to the editor's origin; the desktop app needs none of this.
 - Fonts: SF Pro must be installed locally (Apple Developer fonts) or it is substituted.
 
-If the session has no OpenPencil tools but the app is installed, the owner can connect it (`openpencil-mcp` stdio server, or the desktop app's agent integration for Claude Code).
+If the session has no OpenPencil tools, check `claude mcp list`; if `open-pencil` is missing, give the owner the setup above. If it's listed but tools fail, the app isn't open or has no document loaded.
 
 ## 3. Figma, Penpot and others
 
